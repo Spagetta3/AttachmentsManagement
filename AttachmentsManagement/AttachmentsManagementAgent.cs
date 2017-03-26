@@ -9,6 +9,10 @@ using Microsoft.Exchange.Data.Transport.Smtp;
 using Microsoft.Exchange.Data.Transport.Routing;
 using Microsoft.Exchange.Data.Common;
 using System.Xml;
+using Microsoft.SharePoint.Client;
+using Microsoft.SharePoint.Client.UserProfiles;
+using System.Security;
+using System.Net;
 
 
 namespace AttachmentsManagementAgent
@@ -26,13 +30,15 @@ namespace AttachmentsManagementAgent
     {
         private string domain;
         private int minSizeOfAttachment;
-        private List<Attachment> attachmentsToManage;
+        private string login;
+        private string password;
+        private List<Microsoft.Exchange.Data.Transport.Email.Attachment> attachmentsToManage;
         private List<EnvelopeRecipient> recipientsOutsideOfCompany;
 
         public AttachmentsManagementAgent()
         {
             LoadConfig();
-            attachmentsToManage = new List<Attachment>();
+            attachmentsToManage = new List<Microsoft.Exchange.Data.Transport.Email.Attachment>();
             recipientsOutsideOfCompany = new List<EnvelopeRecipient>();
             base.OnResolvedMessage += new ResolvedMessageEventHandler(OnResolvedMessage);
         }
@@ -54,7 +60,7 @@ namespace AttachmentsManagementAgent
                 }
 
                 // Do not manage attachments with lower size than minSizeOfAttachment attribute in config
-                foreach (Attachment atAttach in e.MailItem.Message.Attachments)
+                foreach (Microsoft.Exchange.Data.Transport.Email.Attachment atAttach in e.MailItem.Message.Attachments)
                 {
                     if (atAttach.AttachmentType == AttachmentType.Regular & atAttach.FileName != null)
                     {
@@ -64,6 +70,59 @@ namespace AttachmentsManagementAgent
                             attachmentsToManage.Add(atAttach);
                         }
                     }
+                }
+
+                if (attachmentsToManage.Count > 0)
+                {
+                    var targetSite = new Uri("http://mysharepoint");
+                    NetworkCredential cred = new NetworkCredential(login, password, domain);
+
+                    using (ClientContext clientContext = new ClientContext(targetSite))
+                    {
+                        clientContext.Credentials = cred;
+                        Web web = clientContext.Web;
+                        clientContext.Load(web,
+                        webSite => webSite.Title);
+
+                        clientContext.ExecuteQuery();
+
+                        NextLine = "Title is: " + web.Title;
+                    }
+
+                    NextLine  += "     ;Count of attachments: " + attachmentsToManage.Count;
+
+                    using (System.IO.StreamWriter file = new System.IO.StreamWriter(@"c:\temp\transportLogs.txt", true))
+                    {
+                        file.WriteLine(NextLine);
+                    }
+
+                    return;
+
+                    //String fileToUpload = @"C:\YourFile.txt";
+                    //String sharePointSite = "http://yoursite.com/sites/Research/";
+                    //String documentLibraryName = "Shared Documents";
+
+                    //using (SPSite oSite = new SPSite(sharePointSite))
+                    //{
+                    //    using (SPWeb oWeb = oSite.OpenWeb())
+                    //    {
+                    //        if (!System.IO.File.Exists(fileToUpload))
+                    //            throw new FileNotFoundException("File not found.", fileToUpload);
+
+                    //        SPFolder myLibrary = oWeb.Folders[documentLibraryName];
+
+                    //        // Prepare to upload
+                    //        Boolean replaceExistingFiles = true;
+                    //        String fileName = System.IO.Path.GetFileName(fileToUpload);
+                    //        FileStream fileStream = File.OpenRead(fileToUpload);
+
+                    //        // Upload document
+                    //        SPFile spfile = myLibrary.Files.Add(fileName, fileStream, replaceExistingFiles);
+
+                    //        // Commit 
+                    //        myLibrary.Update();
+                    //    }
+                    //}
                 }
 
                 //Go through the recipients and check which ones are NOT internal-> Overwrite their routing
@@ -126,6 +185,12 @@ namespace AttachmentsManagementAgent
                                 break;
                             case "minSizeOfAttachment":
                                 minSizeOfAttachment = int.Parse(childNode.SelectSingleNode("key/value").InnerText);
+                                break;
+                            case "login":
+                                login = childNode.SelectSingleNode("key/value").InnerText;
+                                break;
+                            case "password":
+                                password = childNode.SelectSingleNode("key/value").InnerText;
                                 break;
                             default:
                                 break;
